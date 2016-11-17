@@ -11,19 +11,21 @@ import MapKit
 
 class MapViewController: UIViewController, MKMapViewDelegate {
     
-    var locationData: [[String : AnyObject]] = []
-
     @IBOutlet weak var mapView: MKMapView!
-    
-    override func viewDidLoad() {
-        super.viewDidLoad()
-       
-        self.getStudentLocation()
-
-        self.setStudentLocation()
-        // Do any additional setup after loading the view.
+    @IBAction func logoutButtonPressed(_ sender: AnyObject) {
+        Client.sharedInstance().logoutSession { (success, error) in
+            self.dismiss(animated: true, completion: nil)
+            print("Successfully logged out")
+        }
     }
     
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(true)
+        self.getStudentLocation{ (results) -> () in
+        }
+    }
+    
+
     // MARK: - MKMapViewDelegate
     
     // Here we create a view with a "right callout accessory view". You might choose to look into other
@@ -54,80 +56,62 @@ class MapViewController: UIViewController, MKMapViewDelegate {
         if control == view.rightCalloutAccessoryView {
             let app = UIApplication.shared
             if let toOpen = view.annotation?.subtitle! {
-                app.openURL(URL(string: toOpen)!)
+                app.open(URL(string: toOpen)!, options: [:], completionHandler: { (nil) in
+                    print("works")
+                })
             }
         }
     }
 
-    func getStudentLocation() {
-        let request = NSMutableURLRequest(url: NSURL(string: Constants.baseParseSecureURL)! as URL)
-        request.addValue(Constants.parseAppID, forHTTPHeaderField: "X-Parse-Application-Id")
-        request.addValue(Constants.restApiKey, forHTTPHeaderField: "X-Parse-REST-API-Key")
-        let session = URLSession.shared
-        let task = session.dataTask(with: request as URLRequest) { data, response, error in
-            
-            // if an error occurs, print it and re-enable the UI
-            func displayError(error: String, debugLabelText: String? = nil) {
-                print(error)
+    func getStudentLocation(completionHandler handler:@escaping ([[String:AnyObject]]) -> Void) {
+        Client.sharedInstance().getStudentLocations { (results, errorString) in
+            if(results != nil) {
+                performUIUpdatesOnMain() {
+                    self.setStudentLocation()
+                }
+            } else {
+                let alertController = UIAlertController(title: "Download Fail", message: "Unable to download student locations", preferredStyle: UIAlertControllerStyle.alert)
+                alertController.addAction(UIAlertAction(title: "OK", style: UIAlertActionStyle.default, handler: nil))
+                self.present(alertController, animated: true, completion: nil)
             }
-            
-            if error != nil { // Handle error...
-                return
-            }
-            //print(NSString(data: data!, encoding: String.Encoding.utf8.rawValue))
-            
-            /* 5. Parse the data */
-            let parsedResult: [String: AnyObject]
-            do {
-                parsedResult = try JSONSerialization.jsonObject(with: data!, options: .mutableContainers) as! [String: AnyObject]
-            } catch {
-                displayError(error: "Could not parse the data as JSON: '\(data)'")
-                return
-            }
-            self.locationData.append(parsedResult)
         }
-        task.resume()
     }
     
     func setStudentLocation() {
-        // The "locations" array is an array of dictionary objects that are similar to the JSON
-        // data that you can download from parse.
-        let locations = locationData
         
-        // We will create an MKPointAnnotation for each dictionary in "locations". The
-        // point annotations will be stored in this array, and then provided to the map view.
         var annotations = [MKPointAnnotation]()
         
-        // The "locations" array is loaded with the sample data below. We are using the dictionaries
-        // to create map annotations. This would be more stylish if the dictionaries were being
-        // used to create custom structs. Perhaps StudentLocation structs.
-        
-        for dictionary in locations {
+        for location in StudentLocation.sharedInstance.studentLocationList {
             
             // Notice that the float values are being used to create CLLocationDegree values.
             // This is a version of the Double type.
-            let lat = CLLocationDegrees(dictionary[JSONResponseKeys.latitude] as! Double)
-            let long = CLLocationDegrees(dictionary[JSONResponseKeys.latitude] as! Double)
             
-            // The lat and long are used to create a CLLocationCoordinates2D instance.
-            let coordinate = CLLocationCoordinate2D(latitude: lat, longitude: long)
-            
-            let first = dictionary[JSONResponseKeys.firstName] as! String
-            let last = dictionary[JSONResponseKeys.lastName] as! String
-            let mediaURL = dictionary[JSONResponseKeys.mediaURL] as! String
-            
-            // Here we create the annotation and set its coordiate, title, and subtitle properties
-            let annotation = MKPointAnnotation()
-            annotation.coordinate = coordinate
-            annotation.title = "\(first) \(last)"
-            annotation.subtitle = mediaURL
-            
-            // Finally we place the annotation in an array of annotations.
-            annotations.append(annotation)
+            if location.firstName != nil && location.lastName != nil && location.latitude != nil && location.longitude != nil && location.mediaURL != nil {
+                let lat = CLLocationDegrees(location.latitude! as Double)
+                let long = CLLocationDegrees(location.longitude! as Double)
+                
+                // The lat and long are used to create a CLLocationCoordinates2D instance.
+                let coordinate = CLLocationCoordinate2D(latitude: lat, longitude: long)
+                
+                let first = location.firstName! as String
+                let last = location.lastName! as String
+                let mediaURL = location.mediaURL! as String
+                
+                // Here we create the annotation and set its coordiate, title, and subtitle properties
+                let annotation = MKPointAnnotation()
+                annotation.coordinate = coordinate
+                annotation.title = "\(first) \(last)"
+                annotation.subtitle = mediaURL
+                
+                
+                // Finally we place the annotation in an array of annotations.
+                annotations.append(annotation)
+            }
+
         }
-        
-        // When the array is complete, we add the annotations to the map.
-        mapView.delegate = self
-        self.mapView.addAnnotations(annotations)
+                
+            // When the array is complete, we add the annotations to the map.
+            self.mapView.delegate = self
+            self.mapView.addAnnotations(annotations)
     }
 }
